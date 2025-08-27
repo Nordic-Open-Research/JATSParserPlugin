@@ -166,7 +166,7 @@ class JatsParserPlugin extends GenericPlugin {
 		}
 
 		if ($doi = $publication->getData('pub-id::doi')) {
-			$articleDataString .= "\n" . __('plugins.pubIds.doi.readerDisplayName', null, $localeKey) . ': ' . $doi;
+			$articleDataString .= "\n" . __('doi.readerDisplayName', null, $localeKey) . ': ' . $doi;
 		}
 
 		$pdfDocument->SetHeaderData($pdfHeaderLogo, PDF_HEADER_LOGO_WIDTH, $journal->getName($localeKey), $articleDataString);
@@ -432,6 +432,7 @@ class JatsParserPlugin extends GenericPlugin {
 	 * @brief modify citationsRaw property based on parsed citations from JATS XML
 	 */
 	function editPublicationReferences(string $hookname, array $args) {
+		// error_log('Debug: entering editPublicationReferences');
 		$newPublication = $args[0];
 		$params = $args[2];
 		if (!array_key_exists('jatsParser::references', $params)) return false;
@@ -439,6 +440,7 @@ class JatsParserPlugin extends GenericPlugin {
 		$fileId = $params['jatsParser::references'];
 		if (!$fileId) return false;
 
+		// error_log('Debug: from editPublicationReferences, this code should not run in default mode');
 		$submissionFile = Repo::submissionFile()->get($fileId);
 		$htmlDocument = $this->getFullTextFromJats($submissionFile);
 
@@ -449,7 +451,6 @@ class JatsParserPlugin extends GenericPlugin {
 		$citationStyle = $this->getCitationStyle($context);
 
 		$lang = str_replace('_', '-', $submissionFile->getSubmissionLocale());
-		$htmlDocument->setFootnotes();
 		$htmlDocument->setReferences($citationStyle, $lang, false);
 
 		$this->_importCitations($htmlDocument, $newPublication);
@@ -473,8 +474,8 @@ class JatsParserPlugin extends GenericPlugin {
 
 		$submissionFile = Repo::submissionFile()->get($fileId);
 		$datesDocument = $this->getDatesFromJats($submissionFile);
-		// error_log("===========================");
-		// error_log(var_export($datesDocument,true));
+		error_log("===========================");
+		error_log(var_export($datesDocument,true));
 		$request = $this->getRequest();
 		$context = $request->getContext();
 
@@ -484,12 +485,12 @@ class JatsParserPlugin extends GenericPlugin {
 		$params = [
 			'date_submitted' => $datesDocument['received'],
 		];
-		// error_log("-0-");
-		// error_log(var_export($submissionFile->getAllData(),true));
-		// error_log("-1-");
-		// error_log(var_export($submission->getAllData(),true));
+		error_log("-0-");
+		error_log(var_export($submissionFile->getAllData(),true));
+		error_log("-1-");
+		error_log(var_export($submission->getAllData(),true));
 		Repo::submission()->edit($submission, $params);
-		// error_log(var_export($submission->getAllData(),true));
+		error_log(var_export($submission->getAllData(),true));
 		
 		// Update decision date
 		$editorDecisions = Repo::decision()->getCollector()
@@ -499,10 +500,10 @@ class JatsParserPlugin extends GenericPlugin {
 
 		if (!empty($editorDecisions) && array_key_exists('accepted', $datesDocument)) {
 			$editorDecision = $editorDecisions->first();
-			// error_log("-2-");
-			// error_log(var_export($editorDecision->getAllData(),true));
+			error_log("-2-");
+			error_log(var_export($editorDecision->getAllData(),true));
 			$editorDecision->setData('dateDecided', $datesDocument['accepted']);
-			// error_log(var_export($editorDecision->getAllData(),true));
+			error_log(var_export($editorDecision->getAllData(),true));
 			
 		}
 
@@ -511,12 +512,12 @@ class JatsParserPlugin extends GenericPlugin {
 		$params = [
 			'date_published' => $datesDocument['pub'],
 		];
-		// error_log("-3-");
-		// error_log(var_export($newPublication->getAllData(),true));
+		error_log("-3-");
+		error_log(var_export($newPublication->getAllData(),true));
 		Repo::publication()->edit($newPublication, $params);
-		// error_log(var_export($newPublication->getAllData(),true));
+		error_log(var_export($newPublication->getAllData(),true));
 
-		// error_log("===========================");
+		error_log("===========================");
 		return false;
 	}
 
@@ -782,6 +783,8 @@ class JatsParserPlugin extends GenericPlugin {
 		$submission = $templateMgr->getTemplateVars('article');
 		$fullTexts = $publication->getData('jatsParser::fullText');
 
+		// error_log('Debug: fullTexts data: ' . print_r($fullTexts, true));
+
 		$submissionFileId = 0;
 		$submissionFile = null;
 
@@ -1015,57 +1018,61 @@ class JatsParserPlugin extends GenericPlugin {
 					$fileManager->getBasePath() . DIRECTORY_SEPARATOR . $submissionFile->getData('path'),
 					$submissionDir . '/' . uniqid() . '.xml'
 				);
-
-				$newSubmissionFile = Repo::submissionFile()->newDataObject(
-					[
-						'fileId' => $fileId,
-						'uploaderUserId' => $user->getId(),
-						'fileStage' => SUBMISSION_FILE_PRODUCTION_READY,
-						'submissionId' => $submission->getId(),
-						'genreId' => $submissionFile->getData('genreId'),
-						'name' => $submissionFile->getData('name'),
-					],
-				);
-				Repo::submissionFile()->add($newSubmissionFile);
-
-				// copy and attach dependent files, only images are supported
-
-				$assocFiles = Repo::submissionFile()->getCollector()
-					->filterByAssoc(Application::ASSOC_TYPE_SUBMISSION_FILE, [$submission->getId()])
-					->filterBySubmissionIds([$submission->getId()])
-					->filterByFileStages([SubmissionFile::SUBMISSION_FILE_DEPENDENT])								
-					->includeDependentFiles()
-                    ->getMany();
-
-				foreach ($assocFiles as $assocFile) {
-					/** @var $assocFile SubmissionFile */
-					if (in_array($assocFile->getData('mimetype'), $this->getSupportedSupplFileTypes())) {
-						$newAssocFileId = Services::get('file')->add(
-							$fileManager->getBasePath() . DIRECTORY_SEPARATOR . $assocFile->getData('path'),
-							$submissionDir . '/' . uniqid() . '.' . $fileManager->parseFileExtension($assocFile->getData('path'))
-						);
-						$assocSubmissionFile = Repo::submissionFile()->newDataObject([
-							'fileId' => $newAssocFileId,
-							'assocId' => $newSubmissionFile->getId(),
-							'assocType' => ASSOC_TYPE_SUBMISSION_FILE,
-							'uploaderUserId' => $user->getId(),
-							'fileStage' =>  SUBMISSION_FILE_DEPENDENT,
-							'submissionId' => $submission->getId(),
-							'genreId' => $assocFile->getData('genreId'),
-							'name' => $assocFile->getData('name'),
-							'caption' => $assocFile->getData('caption'),
-							'copyrightOwner' => $assocFile->getData('copyrightOwner'),
-                            'credit' => $assocFile->getData('credit'),
-                            'terms' =>$assocFile->getData('terms'),
-						]);
-						Repo::submissionFile()->add($assocSubmissionFile);
-					}
-				}
+				
+                if (!$submissionFile) {
+    				$newSubmissionFile = Repo::submissionFile()->newDataObject(
+    					[
+    						'fileId' => $fileId,
+    						'uploaderUserId' => $user->getId(),
+    						'fileStage' => SUBMISSION_FILE_PRODUCTION_READY,
+    						'submissionId' => $submission->getId(),
+    						'genreId' => $submissionFile->getData('genreId'),
+    						'name' => $submissionFile->getData('name'),
+    					],
+    				);
+    				Repo::submissionFile()->add($newSubmissionFile);
+    
+    				// copy and attach dependent files, only images are supported
+    
+    				$assocFiles = Repo::submissionFile()->getCollector()
+    					->filterByAssoc(Application::ASSOC_TYPE_SUBMISSION_FILE, [$submission->getId()])
+    					->filterBySubmissionIds([$submission->getId()])
+    					->filterByFileStages([SubmissionFile::SUBMISSION_FILE_DEPENDENT])								
+    					->includeDependentFiles()
+                        ->getMany();
+    
+    				foreach ($assocFiles as $assocFile) {
+    					/** @var $assocFile SubmissionFile */
+    					if (in_array($assocFile->getData('mimetype'), $this->getSupportedSupplFileTypes())) {
+    						$newAssocFileId = Services::get('file')->add(
+    							$fileManager->getBasePath() . DIRECTORY_SEPARATOR . $assocFile->getData('path'),
+    							$submissionDir . '/' . uniqid() . '.' . $fileManager->parseFileExtension($assocFile->getData('path'))
+    						);
+    						$assocSubmissionFile = Repo::submissionFile()->newDataObject([
+    							'fileId' => $newAssocFileId,
+    							'assocId' => $newSubmissionFile->getId(),
+    							'assocType' => ASSOC_TYPE_SUBMISSION_FILE,
+    							'uploaderUserId' => $user->getId(),
+    							'fileStage' =>  SUBMISSION_FILE_DEPENDENT,
+    							'submissionId' => $submission->getId(),
+    							'genreId' => $assocFile->getData('genreId'),
+    							'name' => $assocFile->getData('name'),
+    							'caption' => $assocFile->getData('caption'),
+    							'copyrightOwner' => $assocFile->getData('copyrightOwner'),
+                                'credit' => $assocFile->getData('credit'),
+                                'terms' =>$assocFile->getData('terms'),
+    						]);
+    						Repo::submissionFile()->add($assocSubmissionFile);
+    					}
+    				}
+                }
 
 				$htmlDocument = new HTMLDocument($document);
 				$htmlString = $htmlDocument->saveAsHTML();
-				$publication->setData('jatsParser::fullTextFileId', $newSubmissionFile->getId(), $galleyLocale);
+				$publication->setData('jatsParser::fullTextFileId', $submissionFile ? $submissionFile->getId() : $newSubmissionFile->getId(), $galleyLocale);
 				$publication->setData('jatsParser::fullText', $htmlString, $galleyLocale);
+				
+				Repo::publication()->dao->update($publication);
 			}
 		}
 	}
