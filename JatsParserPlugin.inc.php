@@ -451,7 +451,7 @@ class JatsParserPlugin extends GenericPlugin {
 		$citationStyle = $this->getCitationStyle($context);
 
 		$lang = str_replace('_', '-', $submissionFile->getSubmissionLocale());
-		$htmlDocument->setReferences($citationStyle, $lang, false);
+		// $htmlDocument->setReferences($citationStyle, $lang, false);
 
 		$this->_importCitations($htmlDocument, $newPublication);
 
@@ -741,22 +741,50 @@ class JatsParserPlugin extends GenericPlugin {
 	 * @param HTMLDocument $htmlDocument
 	 * @param Publication $newPublication
 	 * @return void
-	 * @brief saves parsed citeproc references as raw citations
+	 * @brief saves parsed references as raw citations
 	 */
 	private function _importCitations(HTMLDocument $htmlDocument, Publication $newPublication): void {
-		$refs = $htmlDocument->getRawReferences();
+		$refs = $htmlDocument->jatsDocument->getReferences();
+		$formattedRefs = [];
+		foreach ($refs as $i => $ref) {
+			// Uncomment below to prefix citations with [number]
+			// $formattedRefs[] = '[' . ($i + 1) . "] " . trim($ref);
+			$formattedRefs[] = trim($ref);
+		}
+		$rawCitations = implode("\n", $formattedRefs);
+
+		$currentCitations = (string) $newPublication->getData('citationsRaw');
+		if ($currentCitations === $rawCitations) { // No update needed, citations unchanged
+			return;
+		}
+		
 		$publicationId = $newPublication->getId();
 		$citationDao = DAORegistry::getDAO('CitationDAO'); /** @var $citationDao CitationDAO */
-
 		$citationDao->deleteByPublicationId($publicationId);
-		$rawCitations = '';
-
-		foreach ($refs as $key => $ref) {
-			$rawCitations .= $ref . "\n";
-		}
-
+		
 		$newPublication->setData('citationsRaw', $rawCitations);
 	}
+
+	// /**
+	//  * @param HTMLDocument $htmlDocument
+	//  * @param Publication $newPublication
+	//  * @return void
+	//  * @brief saves parsed citeproc references as raw citations
+	//  */
+	// private function _importCitations(HTMLDocument $htmlDocument, Publication $newPublication): void {
+	// 	$refs = $htmlDocument->getRawReferences();
+	// 	$publicationId = $newPublication->getId();
+	// 	$citationDao = DAORegistry::getDAO('CitationDAO'); /** @var $citationDao CitationDAO */
+
+	// 	$citationDao->deleteByPublicationId($publicationId);
+	// 	$rawCitations = '';
+
+	// 	foreach ($refs as $key => $ref) {
+	// 		$rawCitations .= $ref . "\n";
+	// 	}
+
+	// 	$newPublication->setData('citationsRaw', $rawCitations);
+	// }
 
 	/**
 	 * @param SubmissionFile $submissionFile
