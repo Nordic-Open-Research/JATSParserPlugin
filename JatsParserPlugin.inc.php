@@ -749,7 +749,8 @@ class JatsParserPlugin extends GenericPlugin {
 		foreach ($refs as $i => $ref) {
 			// Uncomment below to prefix citations with [number]
 			// $formattedRefs[] = '[' . ($i + 1) . "] " . trim($ref);
-			$formattedRefs[] = trim($ref);
+			$cleanRef = html_entity_decode($ref, ENT_QUOTES | ENT_XML1, 'UTF-8');
+			$formattedRefs[] = trim($cleanRef);
 		}
 		$rawCitations = implode("\n", $formattedRefs);
 
