@@ -1,5 +1,9 @@
 <?php
 
+namespace APP\plugins\generic\jatsParser\classes\components\forms;
+
+use APP\core\Application;
+use PKP\plugins\PluginRegistry;
 use PKP\components\forms\FieldHTML;
 use \PKP\components\forms\FormComponent;
 use \PKP\components\forms\FieldOptions;

@@ -13,7 +13,10 @@
  * @brief Form for journal managers to modify jatsParser plugin settings
  */
 
-import('lib.pkp.classes.form.Form');
+namespace APP\plugins\generic\jatsParser;
+
+use APP\template\TemplateManager;
+use PKP\form\Form;
 
 class JatsParserSettingsForm extends Form {
 

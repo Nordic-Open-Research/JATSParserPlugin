@@ -1,6 +1,12 @@
 <?php
 
+namespace APP\plugins\generic\jatsParser;
+
+use APP\core\Application;
+use APP\core\Services;
 use APP\pages\article\ArticleHandler;
+use PKP\plugins\PluginRegistry;
+use PKP\submissionFile\SubmissionFile;
 use APP\facades\Repo;
 
 class FullTextArticleHandler extends ArticleHandler {

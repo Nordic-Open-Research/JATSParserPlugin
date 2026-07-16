@@ -1,6 +1,6 @@
 <?php
 /**
- * @file plugins/generic/jatsParser/JatsParserPlugin.inc.php
+ * @file plugins/generic/jatsParser/JatsParserPlugin.php
  *
  * Copyright (c) 2017-2018 Vitalii Bezsheiko
  * Distributed under the GNU GPL v3.
@@ -10,25 +10,42 @@
  *
  */
 
-require_once __DIR__ . '/JATSParser/vendor/autoload.php';
+namespace APP\plugins\generic\jatsParser;
 
-import('lib.pkp.classes.plugins.GenericPlugin');
-import('plugins.generic.jatsParser.classes.JATSParserDocument');
-import('plugins.generic.jatsParser.classes.components.forms.PublicationJATSUploadForm');
-import('lib.pkp.classes.citation.Citation');
-import('lib.pkp.classes.file.PrivateFileManager');
+require_once __DIR__ . '/JATSParser/vendor/autoload.php';
 
 use APP\core\Application;
 use APP\core\Request;
-use PKP\core\JSONMessage;
-use PKP\galley\Galley;
+use APP\core\Services;
+use APP\journal\Journal;
+use APP\publication\Publication;
 use APP\facades\Repo;
-use PKP\facades\Locale;
-use PKP\i18n\LocaleMetadata;
+use APP\plugins\generic\htmlArticleGalley\HtmlArticleGalleyPlugin;
+use APP\plugins\generic\jatsParser\classes\components\forms\PublicationJATSUploadForm;
+use APP\plugins\generic\jatsParser\classes\JATSParserDocument;
+use APP\template\TemplateManager;
 use JATSParser\Body\Document;
-use JATSParser\PDF\TCPDFDocument;
 use JATSParser\HTML\Document as HTMLDocument;
-use \PKP\components\forms\FormComponent;
+use JATSParser\PDF\TCPDFDocument;
+use PKP\citation\Citation;
+use PKP\citation\CitationListTokenizerFilter;
+use PKP\components\forms\FieldHTML;
+use PKP\components\forms\FieldOptions;
+use PKP\components\forms\FormComponent;
+use PKP\config\Config;
+use PKP\core\JSONMessage;
+use PKP\db\DAORegistry;
+use PKP\facades\Locale;
+use PKP\file\PrivateFileManager;
+use PKP\galley\Galley;
+use PKP\i18n\LocaleMetadata;
+use PKP\linkAction\LinkAction;
+use PKP\linkAction\request\AjaxModal;
+use PKP\plugins\GenericPlugin;
+use PKP\plugins\Hook;
+use PKP\plugins\Plugin;
+use PKP\plugins\PluginRegistry;
+use PKP\submissionFile\SubmissionFile;
 
 define("CREATE_PDF_QUERY", "download=pdf");
 
@@ -39,16 +56,16 @@ class JatsParserPlugin extends GenericPlugin {
 
 			if ($this->getEnabled()) {
 				// Add data to the publication
-				HookRegistry::register('Template::Workflow::Publication', array($this, 'publicationTemplateData'));
-				HookRegistry::register('Schema::get::publication', array($this, 'addToSchema'));
-				HookRegistry::register('LoadHandler', array($this, 'loadFullTextAssocHandler'));
-				HookRegistry::register('Publication::edit', array($this, 'editPublicationFullText'));
-				HookRegistry::register('Templates::Article::Main', array($this, 'displayFullText'));
-				HookRegistry::register('TemplateManager::display', array($this, 'themeSpecificStyles'));
-				HookRegistry::register('Form::config::before', array($this, 'addCitationsFormFields'));
-				HookRegistry::register('Publication::edit', array($this, 'editPublicationReferences'));
-				HookRegistry::register('Publication::edit', array($this, 'editPublicationDates'));
-				HookRegistry::register('Publication::edit', array($this, 'createPdfGalley'), HOOK_SEQUENCE_LAST);
+				Hook::add('Template::Workflow::Publication', array($this, 'publicationTemplateData'));
+				Hook::add('Schema::get::publication', array($this, 'addToSchema'));
+				Hook::add('LoadHandler', array($this, 'loadFullTextAssocHandler'));
+				Hook::add('Publication::edit', array($this, 'editPublicationFullText'));
+				Hook::add('Templates::Article::Main', array($this, 'displayFullText'));
+				Hook::add('TemplateManager::display', array($this, 'themeSpecificStyles'));
+				Hook::add('Form::config::before', array($this, 'addCitationsFormFields'));
+				Hook::add('Publication::edit', array($this, 'editPublicationReferences'));
+				Hook::add('Publication::edit', array($this, 'editPublicationDates'));
+				Hook::add('Publication::edit', array($this, 'createPdfGalley'), Hook::SEQUENCE_LAST);
 			}
 
 			return true;
@@ -77,7 +94,6 @@ class JatsParserPlugin extends GenericPlugin {
 	 */
 	function getActions($request, $verb) {
 		$router = $request->getRouter();
-		import('lib.pkp.classes.linkAction.request.AjaxModal');
 		return array_merge(
 			$this->getEnabled()?array(
 				new LinkAction(
@@ -100,7 +116,6 @@ class JatsParserPlugin extends GenericPlugin {
 		switch ($request->getUserVar('verb')) {
 			case 'settings':
 				$context = $request->getContext();
-				$this->import('JatsParserSettingsForm');
 				$form = new JatsParserSettingsForm($this, $context->getId());
 				if ($request->getUserVar('save')) {
 					$form->readInputData();
@@ -243,7 +258,7 @@ class JatsParserPlugin extends GenericPlugin {
 	 */
 	private function _prepareForPdfGalley(string $htmlString): string {
 
-		$dom = new DOMDocument('1.0', 'utf-8');
+		$dom = new \DOMDocument('1.0', 'utf-8');
 		$htmlHead = "\n";
 		$htmlHead .= '<head>';
 		$htmlHead .= "\t" . '<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>';
@@ -527,10 +542,9 @@ class JatsParserPlugin extends GenericPlugin {
 	 * @brief Extracts significant publication dates from a JATS XML document.
 	 */
 	public function getDatesFromJats(SubmissionFile $submissionFile) {
-		import('lib.pkp.classes.file.PrivateFileManager');
 		$fileMgr = new PrivateFileManager();
 	
-		$dom = new DOMDocument;
+		$dom = new \DOMDocument;
 		$dom->load($fileMgr->getBasePath() . DIRECTORY_SEPARATOR . $submissionFile->getData('path'));
 	
 		$dates = [];
@@ -686,7 +700,6 @@ class JatsParserPlugin extends GenericPlugin {
 		if (empty($rawCitations)) return $htmlString;
 
 		// Use OJS raw citations tokenizer
-		import('lib.pkp.classes.citation.CitationListTokenizerFilter');
 		$citationTokenizer = new CitationListTokenizerFilter();
 		$citationStrings = $citationTokenizer->execute($rawCitations);
 
@@ -793,7 +806,6 @@ class JatsParserPlugin extends GenericPlugin {
 	 * @brief retrieves PHP DOM representation of the article's full-text
 	 */
 	public function getFullTextFromJats (SubmissionFile $submissionFile): HTMLDocument {
-		import('lib.pkp.classes.file.PrivateFileManager');
 		$fileMgr = new PrivateFileManager();
 		$htmlDocument = new HTMLDocument(new Document($fileMgr->getBasePath() . DIRECTORY_SEPARATOR . $submissionFile->getData('path')));
 		return $htmlDocument;

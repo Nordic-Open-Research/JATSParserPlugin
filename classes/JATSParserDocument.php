@@ -1,5 +1,7 @@
 <?php
 
+namespace APP\plugins\generic\jatsParser\classes;
+
 require_once __DIR__ . '/../JATSParser/vendor/autoload.php';
 
 use JATSParser\HTML\Document as Document;
