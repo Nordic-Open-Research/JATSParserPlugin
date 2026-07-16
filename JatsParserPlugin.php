@@ -43,6 +43,7 @@ use PKP\linkAction\LinkAction;
 use PKP\linkAction\request\AjaxModal;
 use PKP\plugins\GenericPlugin;
 use PKP\plugins\Hook;
+use PKP\submission\Genre;
 use PKP\plugins\Plugin;
 use PKP\plugins\PluginRegistry;
 use PKP\submissionFile\SubmissionFile;
@@ -677,9 +678,9 @@ class JatsParserPlugin extends GenericPlugin {
 		$genre = $genreDAO->getByKey('SUBMISSION', $submission->getData('contextId'));
 		$submissionFile = Repo::submissionFile()->newDataObject([
 			'fileId' => $fileId,
-			'assocType' => ASSOC_TYPE_GALLEY,
+			'assocType' => Application::ASSOC_TYPE_GALLEY,
 			'assocId' => $galley->getId(),
-			'fileStage' => SUBMISSION_FILE_PROOF,
+			'fileStage' => SubmissionFile::SUBMISSION_FILE_PROOF,
 			'mimetype' => 'application/pdf',
 			'locale' => $galley->getData('locale'),
 			'genreId' => $genre->getId(),
@@ -900,7 +901,7 @@ class JatsParserPlugin extends GenericPlugin {
 		$genreDao = DAORegistry::getDAO('GenreDAO');
 		foreach ($dependentFiles as $dependentFile) {
 			$genre = $genreDao->getById($dependentFile->getData('genreId'));
-			if ($genre->getCategory() !== GENRE_CATEGORY_ARTWORK) continue; // only art works are supported
+			if ($genre->getCategory() !== Genre::GENRE_CATEGORY_ARTWORK) continue; // only art works are supported
 			if (!in_array($dependentFile->getData('mimetype'), self::getSupportedSupplFileTypes())) continue; // check if MIME type is supported
 			$submissionId = $submissionFile->getData('submissionId');
 			switch ($request->getRequestedOp()) {
@@ -1069,7 +1070,7 @@ class JatsParserPlugin extends GenericPlugin {
     					[
     						'fileId' => $fileId,
     						'uploaderUserId' => $user->getId(),
-    						'fileStage' => SUBMISSION_FILE_PRODUCTION_READY,
+    						'fileStage' => SubmissionFile::SUBMISSION_FILE_PRODUCTION_READY,
     						'submissionId' => $submission->getId(),
     						'genreId' => $submissionFile->getData('genreId'),
     						'name' => $submissionFile->getData('name'),
@@ -1096,9 +1097,9 @@ class JatsParserPlugin extends GenericPlugin {
     						$assocSubmissionFile = Repo::submissionFile()->newDataObject([
     							'fileId' => $newAssocFileId,
     							'assocId' => $newSubmissionFile->getId(),
-    							'assocType' => ASSOC_TYPE_SUBMISSION_FILE,
+    							'assocType' => Application::ASSOC_TYPE_SUBMISSION_FILE,
     							'uploaderUserId' => $user->getId(),
-    							'fileStage' =>  SUBMISSION_FILE_DEPENDENT,
+    							'fileStage' =>  SubmissionFile::SUBMISSION_FILE_DEPENDENT,
     							'submissionId' => $submission->getId(),
     							'genreId' => $assocFile->getData('genreId'),
     							'name' => $assocFile->getData('name'),

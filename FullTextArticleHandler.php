@@ -43,10 +43,10 @@ class FullTextArticleHandler extends ArticleHandler {
 		// Find if the file is an image dependent from the XML file, from which full-text was generated.
 /*		import('lib.pkp.classes.submission.SubmissionFile'); // const
 		$dependentFilesIterator = Services::get('submissionFile')->getMany([
-			'assocTypes' => [ASSOC_TYPE_SUBMISSION_FILE],
+			'assocTypes' => [Application::ASSOC_TYPE_SUBMISSION_FILE],
 			'assocIds' => array_values($fullTextFileIds),
 			'submissionIds' => [$this->article->getId()],
-			'fileStages' => [SUBMISSION_FILE_DEPENDENT],
+			'fileStages' => [SubmissionFile::SUBMISSION_FILE_DEPENDENT],
 			'includeDependentFiles' => true,
 		]);
 
