@@ -55,8 +55,12 @@ class JatsParserPlugin extends GenericPlugin {
 		if (parent::register($category, $path, $mainContextId)) {
 
 			if ($this->getEnabled()) {
-				// Add data to the publication
-				Hook::add('Template::Workflow::Publication', array($this, 'publicationTemplateData'));
+				// NB: 'Template::Workflow::Publication' was REMOVED in OJS 3.5 (pkp/pkp-lib#10766,
+				// rewritten submission lists). Hook::add() now THROWS on removed hooks, and that
+				// exception aborted every hook registered after it - silently disabling this whole
+				// plugin. The editorial-workflow JATS upload panel this drove needs reworking
+				// against the new 3.5 workflow UI; the reader-facing full text does not depend on it.
+				// Hook::add('Template::Workflow::Publication', array($this, 'publicationTemplateData'));
 				Hook::add('Schema::get::publication', array($this, 'addToSchema'));
 				Hook::add('LoadHandler', array($this, 'loadFullTextAssocHandler'));
 				Hook::add('Publication::edit', array($this, 'editPublicationFullText'));
