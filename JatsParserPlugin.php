@@ -1146,17 +1146,18 @@ class JatsParserPlugin extends GenericPlugin {
 		$publication = Repo::publication()->get($publicationId);
 		if (!$publication) return;
 
-		$fullTextFileIdData = $publication->getData('jatsParser::fullTextFileId');
-		if ($fullTextFileIdData === null) {
-			$fullTextFileIdData = [];
-		}
-		$submissionFileIds = array_unique($fullTextFileIdData);
-		
-		if (empty($submissionFileIds)) return;
+		// Restore the 3.4 behaviour: offer every uploaded production-ready XML
+		// file for reference import, instead of only files already assigned as the
+		// JATS full text. The workflow panel that set jatsParser::fullTextFileId ran
+		// on Template::Workflow::Publication, a hook removed in OJS 3.5
+		// (pkp/pkp-lib#10766); without this the references picker never appears.
 		$submissionFiles = [];
-		foreach ($submissionFileIds as $submissionFileId) {
-			// Check if file ID is valid and object can be returned
-			if ($submissionFile = Repo::submissionFile()->get($submissionFileId)) {
+		foreach (Repo::submissionFile()
+			->getCollector()
+			->filterBySubmissionIds([$publication->getData('submissionId')])
+			->filterByFileStages([SubmissionFile::SUBMISSION_FILE_PRODUCTION_READY])
+			->getMany() as $submissionFile) {
+			if (in_array($submissionFile->getData('mimetype'), ['application/xml', 'text/xml'])) {
 				$submissionFiles[] = $submissionFile;
 			}
 		}
