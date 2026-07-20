@@ -65,6 +65,7 @@ class JatsParserPlugin extends GenericPlugin {
 				Hook::add('Schema::get::publication', array($this, 'addToSchema'));
 				Hook::add('LoadHandler', array($this, 'loadFullTextAssocHandler'));
 				Hook::add('Publication::edit', array($this, 'editPublicationFullText'));
+				Hook::add('Publication::publish::before', array($this, 'generateFullTextOnPublish'));
 				Hook::add('Templates::Article::Main', array($this, 'displayFullText'));
 				Hook::add('TemplateManager::display', array($this, 'themeSpecificStyles'));
 				Hook::add('Form::config::before', array($this, 'addCitationsFormFields'));
@@ -452,6 +453,156 @@ class JatsParserPlugin extends GenericPlugin {
 		}
 
 		return false;
+	}
+
+	/**
+	 * @param string $hookName Publication::publish::before
+	 * @param array $args [Publication &$newPublication, Publication $publication]
+	 * @return bool
+	 * @brief Generate the JATS full text from the submission's XML at publish time.
+	 *
+	 * Replaces the editorial "JATS full text" panel, which hung off
+	 * Template::Workflow::Publication - a hook removed in OJS 3.5 (pkp/pkp-lib#10766).
+	 * Without it nothing ever sets jatsParser::fullText, so displayFullText() renders
+	 * nothing for anything published after the upgrade. This fires just before the DAO
+	 * update in PKP\publication\Repository::publish(), so the data persists with the
+	 * publication without a second write.
+	 *
+	 * Regenerates only when a NEWER XML has been uploaded than the one the stored full
+	 * text came from. Publication::version() clones both the jatsParser::* settings and
+	 * the galleys (same submissionFileId), so without that comparison a corrected v2 XML
+	 * would silently keep serving v1's text. Never regenerates from an older file, so an
+	 * assignment made by hand is not overwritten.
+	 */
+	public function generateFullTextOnPublish(string $hookName, array $args): bool {
+		$publication = $args[0];
+
+		$sources = $this->_getFullTextSources($publication);
+
+		foreach ($sources as $locale => $submissionFile) {
+			$assignedFileId = (int) $publication->getData('jatsParser::fullTextFileId', $locale);
+
+			// Same file the stored full text came from, or the stored one is newer than
+			// anything on offer - leave it alone.
+			if ($assignedFileId >= $submissionFile->getId()) continue;
+
+			// Figures are DEPENDENT files of whichever file the full text is keyed to, and
+			// re-uploading an XML does not carry them across. Re-keying to a file with fewer
+			// images silently 404s the missing figures, so refuse and keep the older text.
+			if ($assignedFileId) {
+				$imagesNow = $this->_countDependentImages($assignedFileId);
+				$imagesNew = $this->_countDependentImages($submissionFile->getId());
+				if ($imagesNew < $imagesNow) {
+					error_log('jatsParser: refusing to regenerate full text for publication '
+						. $publication->getId() . ' from file ' . $submissionFile->getId()
+						. " ({$imagesNew} images) - current file {$assignedFileId} has {$imagesNow}."
+						. ' Re-upload the figures against the new XML, or assign it manually.');
+					continue;
+				}
+			}
+
+			try {
+				$fileMgr = new PrivateFileManager();
+				$document = new Document($fileMgr->getBasePath() . DIRECTORY_SEPARATOR . $submissionFile->getData('path'));
+				// Not JATS, or nothing parseable in it - leave the file as a plain download.
+				// NB: getArticleSections() lives on JATSParser\Body\Document, not on the
+				// HTMLDocument wrapper, so the check has to happen on the parsed document.
+				if (empty($document->getArticleSections())) continue;
+				$htmlDocument = new HTMLDocument($document);
+			} catch (\Throwable $e) {
+				// A malformed XML must never block publication.
+				error_log('jatsParser: full text generation failed for publication '
+					. $publication->getId() . ': ' . $e->getMessage());
+				continue;
+			}
+
+			$publication->setData('jatsParser::fullTextFileId', $submissionFile->getId(), $locale);
+			$publication->setData('jatsParser::fullText', $htmlDocument->saveAsHTML(), $locale);
+		}
+
+		return false;
+	}
+
+	/**
+	 * @param int $submissionFileId
+	 * @return int number of supported dependent images hanging off this file
+	 */
+	protected function _countDependentImages(int $submissionFileId): int {
+		$count = 0;
+		$dependentFiles = Repo::submissionFile()
+			->getCollector()
+			->filterByAssoc(Application::ASSOC_TYPE_SUBMISSION_FILE, [$submissionFileId])
+			->filterByFileStages([SubmissionFile::SUBMISSION_FILE_DEPENDENT])
+			->includeDependentFiles()
+			->getMany();
+
+		foreach ($dependentFiles as $dependentFile) {
+			if (in_array($dependentFile->getData('mimetype'), self::getSupportedSupplFileTypes())) {
+				$count++;
+			}
+		}
+
+		return $count;
+	}
+
+	/**
+	 * @param Publication $publication
+	 * @return array [locale => SubmissionFile] the XML to build the full text from
+	 * @brief Pick the XML file the full text should be generated from, per locale.
+	 *
+	 * Prefers PRODUCTION_READY (stage 11) XML over galley files, because that is the
+	 * convention on this install and the one the old 3.4 panel enforced: it only ever
+	 * offered production-ready files. It matters because figures are uploaded as
+	 * DEPENDENT files of whichever file the full text is keyed to - _setSupplImgPath()
+	 * and FullTextArticleHandler both resolve images via jatsParser::fullTextFileId.
+	 * Key the full text to a galley file while the figures hang off the production-ready
+	 * file and every image 404s.
+	 *
+	 * Newest file wins (highest id), so re-uploading a corrected XML supersedes the old one.
+	 */
+	protected function _getFullTextSources(Publication $publication): array {
+		$submissionId = $publication->getData('submissionId');
+		$sources = [];
+
+		// Preferred: production-ready XML, keyed to the submission's locale.
+		$submissionFiles = Repo::submissionFile()
+			->getCollector()
+			->filterBySubmissionIds([$submissionId])
+			->filterByFileStages([SubmissionFile::SUBMISSION_FILE_PRODUCTION_READY])
+			->getMany();
+
+		$submission = Repo::submission()->get($submissionId);
+		$locale = $submission ? $submission->getData('locale') : null;
+
+		foreach ($submissionFiles as $submissionFile) {
+			if (!in_array($submissionFile->getData('mimetype'), array("application/xml", "text/xml"))) continue;
+			if (!$locale) continue;
+			if (!isset($sources[$locale]) || $submissionFile->getId() > $sources[$locale]->getId()) {
+				$sources[$locale] = $submissionFile;
+			}
+		}
+
+		// Fallback: XML galleys, for submissions that have no production-ready XML.
+		$galleys = Repo::galley()->getCollector()
+			->filterByPublicationIds([$publication->getId()])
+			->getMany();
+
+		foreach ($galleys as $galley) {
+			if (!in_array($galley->getFileType(), array("application/xml", "text/xml"))) continue;
+
+			$galleyLocale = $galley->getLocale();
+			if (isset($sources[$galleyLocale])) continue; // production-ready XML already won
+
+			$submissionFile = $galley->getFile();
+			if (!$submissionFile) continue;
+
+			$existing = $sources[$galleyLocale] ?? null;
+			if (!$existing || $submissionFile->getId() > $existing->getId()) {
+				$sources[$galleyLocale] = $submissionFile;
+			}
+		}
+
+		return $sources;
 	}
 
 	/**
