@@ -408,11 +408,20 @@ class JatsParserPlugin extends GenericPlugin {
 		$page = $args[0];
 		$op = $args[1];
 
-		if ($page == 'article' && $op == 'downloadFullTextAssoc') {
-			define('HANDLER_CLASS', 'FullTextArticleHandler');
+		if ($page !== 'article' || $op !== 'downloadFullTextAssoc') return false;
+
+		// OJS 3.5 replaced the HANDLER_CLASS + $sourceFile mechanism: the hook must
+		// instantiate the handler into $args[3] and return true to short-circuit
+		// PKPPageRouter::loadHandler(). Defining HANDLER_CLASS now THROWS outright,
+		// and the old .inc.php source path no longer exists - between them, every
+		// JATS figure image 404'd. FullTextArticleHandler autoloads via the
+		// APP\plugins\ PSR-4 mapping, so no require is needed.
+		if (!defined('JATSPARSER_PLUGIN_NAME')) {
 			define('JATSPARSER_PLUGIN_NAME', $this->getName());
-			$args[2] = $this->getPluginPath() . DIRECTORY_SEPARATOR . 'FullTextArticleHandler.inc.php';
 		}
+		$args[3] = new FullTextArticleHandler();
+
+		return true;
 	}
 
 	/**
